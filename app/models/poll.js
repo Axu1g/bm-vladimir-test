@@ -11,10 +11,15 @@ const ObjectId = mongoose.Schema.Types.ObjectId
 
 const targetModels = [ 'Post' ]
 
+/**
+ * создание модели
+ */
 const model = new mongoose.Schema(extend({
   userId: { type: Number, required: true }, // в реальном проекте тут – ссылка на модель Users. Чтобы ты смог тут что-то пробовать – заменил на числовое поле
   //
   votes: 0, // счетчик голосов
+  isActive: { type: Boolean, default: true},
+  mostVotedOption: { type: ObjectId },
   //
   title: { type: String, required: true }, // название опроса
   multi: { type: Boolean, default: false }, // флаг, сообщающий о том, что в опросе может выбрано несколько вариантов ответа
@@ -25,17 +30,35 @@ const model = new mongoose.Schema(extend({
   }
 }, is))
 
+/**
+ * создание индексов на юзеров и target.item
+ */
 model.index({ 'userId': 1 })
 model.index({ 'target.item': 1 })
 
+/**
+ * содание виртуального поля-референса
+ */
 model.virtual('options', {
   ref: 'PostPollOption',
   localField: '_id',
   foreignField: 'pollId'
 })
 
+/**
+ * ссылка на option в статик свойстве
+ */
 model.statics.PollOption = require('./option')
 
+/**
+ * метод модели, создание Poll
+ * @param userId
+ * @param target
+ * @param options
+ * @param title
+ * @param multi
+ * @returns {Promise<*>}
+ */
 model.statics.makePoll = async function (userId, target = {}, options = [], title, multi = false) {
   const model = this
   if (!target.model || !target.item) throw new Error('no target specified')
@@ -47,6 +70,11 @@ model.statics.makePoll = async function (userId, target = {}, options = [], titl
   return poll
 }
 
+/**
+ * Options setter для объекта Poll.
+ * @param options
+ * @returns {Promise<any[]>}
+ */
 model.methods.setOptions = function (options) {
   const poll = this
 
@@ -55,9 +83,17 @@ model.methods.setOptions = function (options) {
   )))
 }
 
+/**
+ * метод объекта для голосования
+ * @param userId
+ * @param data
+ * @returns {*}
+ */
 model.methods.vote = function (userId, data = []) {
   const poll = this
-
+  if (poll.isActive === false) {
+    throw new Error("poll is not active")
+  }
   return mongoose.models.PollOption.update(
     {
       _id: { $in: data.map(el => ObjectID(el)) },
@@ -68,6 +104,14 @@ model.methods.vote = function (userId, data = []) {
   )
 }
 
+/**
+ * Редактирование вариантов ответа
+ * принимает массив строк с вариантами ответов
+ * ищет старые и дизейблит их
+ * добавляет недостающие
+ * @param options
+ * @returns {Promise<any[]>}
+ */
 model.methods.editOptions = async function (options = []) {
   const poll = this
 
@@ -91,6 +135,12 @@ model.methods.editOptions = async function (options = []) {
   return poll.setOptions(missed)
 }
 
+/**
+ * получение данных о голосовании, с возможной группировкой по юзеру
+ * @param params критерии выборки
+ * @param options
+ * @returns {Aggregate}
+ */
 model.statics.getPollInfo = function (params = {}, options = {}) {
   const model = this
 
@@ -156,6 +206,25 @@ model.statics.getPostPolls = async function (params = {}) {
     obj[item.target.item] = item
     return obj
   }, {})
+}
+
+model.methods.closePoll = async function() {
+  const poll = this
+  const winner = mongoose.models.PollOption.aggregate([
+    [
+      { $match: {pollId: poll._id}},
+      { $limit: 1},
+      { $project: {_id: "$_id", length: {$size:"$votes" }}},
+      { $sort : {length : -1}}
+    ]
+  ])
+
+  poll.isActive = false
+  poll.mostVotedOption = ObjectID(winner._id)
+
+  poll.save()
+
+  return poll
 }
 
 module.exports = mongoose.model('Poll', model)

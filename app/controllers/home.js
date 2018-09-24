@@ -12,11 +12,11 @@ exports.getPoll = async ctx => {
 
   try {
     result.poll = await models.Poll.getPollInfo({ _id: ObjectID(pollId) }, { userId: Number(userId) })
+    ctx.res.ok(result, 'poll')
   } catch (e) {
     console.log(e)
+    ctx.res.fail(result, e.toString())
   }
-
-  ctx.res.ok(result, 'poll')
 };
 
 exports.makePoll = async ctx => {
@@ -25,11 +25,13 @@ exports.makePoll = async ctx => {
 
   try {
     result.poll = await models.Poll.makePoll(userId, { model: 'Post', item: postId }, options, title)
+    ctx.res.ok(result, 'poll created')
   } catch (e) {
     console.log(e)
+    ctx.res.fail(result, e.toString())
   }
 
-  ctx.res.ok(result, 'poll created')
+
 }
 
 exports.vote = async ctx => {
@@ -38,13 +40,46 @@ exports.vote = async ctx => {
   const result = {}
 
   try {
-    const [ poll ] = await models.Poll.find({ _id: ObjectID(pollId) })
+    const  poll = await models.Poll.findOne({ _id: ObjectID(pollId) })
     if (!poll) throw new Error('no poll found')
 
     result.result = await poll.vote(userId, idArray)
+    ctx.res.ok(result, !result.result ? 'something went wrong' : 'voted')
+
   } catch (e) {
     console.log(e)
+    ctx.res.fail(result, e.toString())
   }
+}
 
-  ctx.res.ok(result, !result.result ? 'something went wrong' : 'voted')
+exports.closePoll = async ctx => {
+  const { pollId } = ctx.params
+  const result = {}
+
+  try {
+    const poll = await models.Poll.findOne({ _id: ObjectID(pollId) })
+    if (!poll) throw new Error('no poll found')
+
+    result.result = await poll.closePoll()
+    ctx.res.ok(result, !result.result ? 'something went wrong' : 'voted')
+
+  } catch (e) {
+    console.log(e)
+    ctx.res.fail(result, e.toString())
+  }
+}
+
+
+exports.getUserVotes = async ctx => {
+  const { userId } = ctx.params
+  const result = {}
+
+  try {
+    const user = {id: userId} // get from db if not test
+    result.result = await models.PollOption.getUserVotes(user)
+    ctx.res.ok(result, 'ok')
+  } catch (e) {
+    console.log(e)
+    ctx.res.fail(result, e.toString())
+  }
 }
